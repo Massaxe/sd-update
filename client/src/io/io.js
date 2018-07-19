@@ -5,6 +5,8 @@ socket.on("welcome", data => {
     console.log(data)
 });
 
-function LogSocket() {}
+function LogSocket() {
+    console.log("Hello world!")
+}
 
 export { LogSocket };
