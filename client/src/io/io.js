@@ -1,12 +1,34 @@
 import io from "socket.io-client";
+import lobby from "../components/lobby";
 const socket = io("http://localhost:4001");
 
-socket.on("welcome", data => {
-    console.log(data)
-});
-
-function LogSocket() {
-    console.log("Hello world!")
+function GetUser() {
+  return new Promise((resolve, reject) => {
+    socket.emit("get user");
+    socket.on("user info", userInfo => {
+      resolve(userInfo);
+    });
+  });
 }
 
-export { LogSocket };
+function JoinLobby(lobbyId, steamId) {
+  socket.emit("join lobby", { lobbyId: lobbyId, steamId: steamId });
+}
+
+function createLobby(data) {
+  socket.emit("create lobby", data);
+}
+
+function GetLobbies() {
+  return new Promise((resolve, reject) => {
+    socket.on("lobby list", data => {
+      resolve(data);
+    });
+  });
+}
+
+function JoinLobby(data) {
+  socket.emit("join lobby");
+}
+
+export { GetUser, createLobby, GetLobbies };
