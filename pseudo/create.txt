@@ -1,0 +1,22 @@
+Creator (
+    type in amount
+    socket.emit "create lobby" {amount}
+)
+Server (
+    socket.on "create lobby"
+    push {id, amount, steamNameArray, steamIdArray, joinable} to lobby array
+    socket.emit "lobby created" {success, lobby}
+
+    Creator(
+        on "lobby created"
+        success false[
+            show error
+        ]
+        success true[
+            toggle popup
+            show lobby top of site
+        ]
+    )
+
+    io.emit "all lobbies"
+)

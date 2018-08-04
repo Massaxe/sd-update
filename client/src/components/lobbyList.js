@@ -1,5 +1,5 @@
 import React, { Component } from "react";
-import { GetLobbies } from "../io/io";
+import { AwaitLobbies, GetLobbies } from "../io/io";
 import Lobby from "./lobby";
 
 export default class LobbyList extends Component {
@@ -8,23 +8,39 @@ export default class LobbyList extends Component {
     this.state = {
       lobbies: []
     };
-    GetLobbies().then(lobbies => {
+    this.getLobbies();
+  }
+
+  awaitLobbies = () => {
+    AwaitLobbies().then(lobbies => {
       this.setState({ lobbies: lobbies });
     });
-  }
-  renderLobbies = () => {
-    const lobbyElements = [];
-    this.state.lobbies.forEach((lobby, index) => {
-      console.log(lobby);
-      lobbyElements.push(<Lobby lobby={lobby} />);
-    });
-    return lobbyElements;
   };
+
+  getLobbies = () => {
+    GetLobbies().then(lobbies => {
+      this.setState({ lobbies: lobbies });
+      this.awaitLobbies();
+    });
+  };
+
+  componentWillUpdate() {
+    this.awaitLobbies();
+  }
+
   render() {
     return (
       <div>
-        <this.renderLobbies />
+        <RenderLobbies lobbies={this.state.lobbies} user={this.props.user} />
       </div>
     );
   }
+}
+
+function RenderLobbies(props) {
+  const lobbyElements = [];
+  props.lobbies.forEach((lobby, index) => {
+    lobbyElements.push(<Lobby lobby={lobby} user={props.user} />);
+  });
+  return lobbyElements;
 }

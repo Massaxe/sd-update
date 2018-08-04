@@ -1,6 +1,6 @@
 import React, { Component } from "react";
 import "./App.css";
-import { GetUser } from "./io/io";
+import { GetUser, OnConnect, OnDisconnect } from "./io/io";
 import CreateLobby from "./components/createLobby";
 import LobbyList from "./components/lobbyList";
 
@@ -8,18 +8,36 @@ class App extends Component {
   constructor(props) {
     super(props);
     this.state = {
-      user: null
+      user: null,
+      connected: false
     };
-    this.getUser();
+    this.listenerGetUser();
+    this.listenerConnect();
+    this.listenerDisconnect();
   }
 
-  getUser = async () => {
-    let user = await GetUser();
-    this.setState({ user: user });
+  listenerDisconnect = async () => {
+    while (true) {
+      await OnDisconnect();
+      this.setState({ connected: false });
+    }
   };
 
-  renderLogin = () => {
-    console.log(this.state.user);
+  listenerConnect = async () => {
+    while (true) {
+      await OnConnect();
+      this.setState({ connected: true });
+    }
+  };
+
+  listenerGetUser = async () => {
+    while (true) {
+      let user = await GetUser();
+      this.setState({ user: user });
+    }
+  };
+
+  renderAuth = () => {
     if (!this.state.user) {
       return <a href="http://localhost:4000/auth/steam"> Log in </a>;
     } else {
@@ -27,7 +45,7 @@ class App extends Component {
     }
   };
 
-  renderUser = () => {
+  renderUsername = () => {
     if (this.state.user) {
       return <p>{this.state.user.personaname}</p>;
     }
@@ -35,15 +53,18 @@ class App extends Component {
   };
 
   render() {
-    return (
-      <div className="App">
-        <this.renderLogin />
-        <this.renderUser />
-
-        <CreateLobby user={this.state.user} />
-        <LobbyList user={this.state.user} />
-      </div>
-    );
+    if (this.state.connected) {
+      return (
+        <div className="App">
+          <this.renderAuth />
+          <this.renderUsername />
+          <CreateLobby user={this.state.user} />
+          <LobbyList user={this.state.user} />
+        </div>
+      );
+    } else {
+      return <div className="App">Awaiting connection</div>;
+    }
   }
 }
 

@@ -1,0 +1,27 @@
+Opponent(
+    socket.emit "join lobby" {lobbyId}
+)
+Server (
+    socket.on "join lobby"
+    check if opponent in other lobby
+    true
+    socket.to(lobby room).emit "join request"
+    opponent join lobby room
+)
+Creator (
+    socket.on "join request"
+    popup with accept/decline buttons
+    accept button[
+        socket.emit join request" {accept: true, lobbyId}
+    ]
+    decline button[
+        socket.emit join request" {accept: true, lobbyId}
+    ]
+)
+Server(
+    socket.on "join request"
+    accept true[
+        add opponent to lobby
+        emit to room
+    ]
+)

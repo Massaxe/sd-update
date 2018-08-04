@@ -1,0 +1,17 @@
+1) Opponent(
+    emit "join lobby" {lobbyId, steamId}
+)
+2) Server(
+    on "join lobby"
+    lobby.joinable = false
+    emit to lobby room "join request" {name, lobbyId}
+    Add opp to lobby room
+)
+3) Creator(
+    on "join request"
+    setState {requested: true, userRequest: {personaname: data.name}, lobbyId: data.lobbyId}
+)
+4) Creator (
+    click button
+    
+)

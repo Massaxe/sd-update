@@ -3,9 +3,13 @@ const express = require("express"),
   session = require("express-session"),
   SteamStrategy = require("passport-steam").Strategy,
   auth = require("./routes/auth"),
-  steamApiKey = require("./keys/steamKey").key,
+  steamApiKey = require("./keys/key").steam,
   sharedSession = require("express-socket.io-session"),
-  uuid = require("uuid/v1");
+  uuid = require("uuid/v1"),
+  fs = require("fs"),
+  CJSON = require("circular-json"),
+  mongoose = require("mongoose"),
+  User = require("./models/User");
 
 let sessionMiddleware = session({
   secret: "your secret",
@@ -13,8 +17,6 @@ let sessionMiddleware = session({
   resave: true,
   saveUninitialized: true
 });
-
-module.exports.sessionMiddleware = sessionMiddleware;
 
 passport.serializeUser(function(user, done) {
   done(null, user);
@@ -47,6 +49,12 @@ passport.use(
 
 const app = express();
 
+const db = require("./config/keys").mongoURI;
+mongoose
+  .connect(db)
+  .then(() => console.log("MongoDB Connected"))
+  .catch(() => console.log(err));
+
 app.use(sessionMiddleware);
 
 app.use(passport.initialize());
@@ -69,9 +77,10 @@ const io = require("socket.io")(4001).use(
 );
 
 const globalLobbies = [];
+const joinRequests = [];
+const connectedSockets = [];
 
 let logInterval = setInterval(() => {
-  console.log(io.sockets);
   clearInterval(logInterval);
 }, 2500);
 
@@ -79,34 +88,161 @@ io.on("connection", socket => {
   try {
     const user = socket.handshake.session.passport.user._json;
     socket.steamUser = user;
-    console.log(Object.values(io.sockets));
-    socket.on("get user", () => {
-      socket.emit("user info", user);
-    });
-    socket.on("create lobby", data => {
-      globalLobbies.push({
-        amount: data.amount,
-        playerNames: [data.user.personaname, ""],
-        steamIds: [data.user.steamid, ""],
-        id: uuid()
-      });
-      EmitLobbies();
-    });
-    socket.on("join lobby", data => {});
 
-    socket.on("disconnect", () => {});
+    socket.emit("user info", user);
+
+    connectedSockets.push({
+      steam: user,
+      id: socket.id
+    });
+
+    socket.on("create lobby", data => {
+      CreateLobby(data, id => {
+        socket.join(id);
+        socket.join(id + "-cre");
+      });
+    });
+    socket.on("get lobbies", data => {
+      socket.emit("lobby list", globalLobbies);
+    });
+    socket.on("join lobby", data => {
+      RequestJoin(data.lobbyId, data.steamId, valid => {
+        if (valid) {
+          socket.join(data.lobbyId + "-opp");
+          socket.join(data.lobbyId);
+        }
+      });
+    });
+
+    socket.on("join response", data => {
+      const steamId = GetSteamIdByJoinRequestLobbyId(data.lobbyId);
+      JoinLobby(data.lobbyId, steamId, data.accepted);
+    });
+
+    socket.on("disconnect", () => {
+      RemoveConnectedSocketById(socket.id);
+    });
   } catch (err) {}
 });
 
-function GetIndexOfPlayerBySteamId(steamId) {
-  pos = players
-    .map(function(e) {
-      return e.steamid;
-    })
-    .indexOf(steamid);
-  return pos;
+function RemoveConnectedSocketById(id) {
+  const mapped = connectedSockets.map(sess => sess.id);
+  const index = mapped.indexOf(id);
+  connectedSockets.splice(index, 1);
+}
+
+async function CreateLobby(data, cb) {
+  const inLobby = await CheckIfInLobby(data.user.steamid);
+  if (!inLobby) {
+    const lobby = {
+      amount: data.amount,
+      playerNames: [data.user.personaname, ""],
+      steamIds: [data.user.steamid, ""],
+      id: uuid(),
+      joinable: true
+    };
+    globalLobbies.push(lobby);
+    EmitLobbies();
+    cb(lobby.id);
+  }
+}
+function CheckIfInLobby(steamId) {
+  return new Promise((resolve, reject) => {
+    const globalLobbiesOnlySteamIds = globalLobbies.map(
+      lobby => lobby.steamIds
+    );
+    globalLobbiesOnlySteamIds.forEach((lobby, index) => {
+      if (lobby.includes(steamId)) {
+        resolve(true);
+      }
+      if (index === globalLobbiesOnlySteamIds.length - 1) {
+        resolve(false);
+      }
+    });
+    resolve(false);
+  });
 }
 
 function EmitLobbies() {
   io.emit("lobby list", globalLobbies);
+}
+
+function RequestJoin(lobbyId, steamId, cb) {
+  if (GetLobbyByLobbyId(lobbyId).joinable) {
+    const joiner = GetSteamUserBySteamId(steamId);
+    globalLobbies[GetLobbyIndexByLobbyId(lobbyId)].joinable = false;
+
+    joinRequests.push({
+      steamId: steamId,
+      lobbyId: lobbyId
+    });
+
+    io.to(lobbyId + "-cre").emit("join request", {
+      name: joiner.personaname,
+      lobbyId: lobbyId
+    });
+
+    cb(true);
+  }
+  cb(false);
+}
+
+function GetLobbyIndexByLobbyId(lobbyId) {
+  const lobbyIdArray = globalLobbies.map(lobby => lobby.id);
+  const index = lobbyIdArray.indexOf(lobbyId);
+  return index;
+}
+
+function GetLobbyByLobbyId(lobbyId) {
+  const lobbyIdArray = globalLobbies.map(lobby => lobby.id);
+  const index = lobbyIdArray.indexOf(lobbyId);
+  return globalLobbies[index];
+}
+
+function GetSteamIdByJoinRequestLobbyId(lobbyId) {
+  const lobbyIdArray = joinRequests.map(request => request.lobbyId);
+  const index = lobbyIdArray.indexOf(lobbyId);
+  return joinRequests[index].steamId;
+}
+
+function GetRequestedSocketIdBySteamId(steamId) {
+  const mapped = joinRequests.map(req => req.steam.steamid);
+  const index = mapped.indexOf(steamId);
+  return joinRequests[index].id;
+}
+
+function GetSteamUserBySteamId(steamId) {
+  const steamUserArray = Object.values(io.sockets).map(
+    socket => socket.steamUser
+  );
+  const steamUser = steamUserArray.filter(steamData => {
+    try {
+      return steamData.steamid === steamId;
+    } catch (err) {}
+  });
+  return steamUser[0];
+}
+
+function JoinLobby(lobbyId, steamId, accepted) {
+  if (accepted) {
+    const user = GetSteamUserBySteamId(steamId);
+    const lobbyIndex = GetLobbyIndexByLobbyId(lobbyId);
+    const lobby = globalLobbies[lobbyIndex];
+
+    lobby.playerNames[1] = user.personaname;
+    lobby.steamIds[1] = user.steamid;
+
+    globalLobbies[lobbyIndex] = lobby;
+
+    EmitLobbies();
+  } else {
+    io.to(lobbyId).emit("join response", { accept: accepted });
+    globalLobbies[GetLobbyIndexByLobbyId(lobbyId)].joinable = true;
+  }
+}
+
+function LogJSON(data) {
+  const json = CJSON.stringify(data, null, 4);
+  const name = `${Date.now()}.json`;
+  fs.writeFile(name, json, "utf8", () => {});
 }
